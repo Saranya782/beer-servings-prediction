@@ -4,31 +4,43 @@ import pandas as pd
 import numpy as np
 from flask import Flask, render_template, request
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+csv_path = os.path.join(BASE_DIR, 'beer-servings.csv')
+model_path = os.path.join(BASE_DIR, 'model.pkl')
 
-csv_path = 'beer-servings.csv' if os.path.exists('beer-servings.csv') else 'beer_servings.csv'
+app = Flask(__name__, template_folder=os.path.join(BASE_DIR, 'templates'))
+
 df = pd.read_csv(csv_path)
 countries = sorted(df['country'].dropna().unique().tolist())
 continents = sorted(df['continent'].dropna().unique().tolist())
 
-# Load model if already trained
-model = None
-if os.path.exists('model.pkl') and os.path.getsize('model.pkl') > 0:
-    with open('model.pkl', 'rb') as f:
-        model = pickle.load(f)
+def get_model():
+    if os.path.exists(model_path) and os.path.getsize(model_path) > 0:
+        try:
+            with open(model_path, 'rb') as f:
+                return pickle.load(f)
+        except Exception:
+            pass
+    # Automatically train model if missing or incompatible with local scikit-learn version
+    try:
+        from train_model import train_and_save
+        return train_and_save()
+    except Exception as e:
+        print(f"Error training model: {e}")
+        return None
+
+model = get_model()
 
 @app.route('/', methods=['GET', 'POST'])
 def home():
     global model
     prediction = None
     if request.method == 'POST':
-        # Re-check model in case it was trained after the app started
-        if model is None and os.path.exists('model.pkl') and os.path.getsize('model.pkl') > 0:
-            with open('model.pkl', 'rb') as f:
-                model = pickle.load(f)
+        if model is None:
+            model = get_model()
 
         if model is None:
-            prediction = "Error: 'model.pkl' is empty or missing. Please run 'python train_model.py' first!"
+            prediction = "Error: Unable to load or train model."
         else:
             input_data = pd.DataFrame([{
                 'beer_servings': float(request.form['beer_servings']),
